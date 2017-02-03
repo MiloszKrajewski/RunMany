@@ -43,33 +43,49 @@ let rec kill (proc: Process option) =
 
 type Event = 
     | Exec
-    | Auto
     | Kill
     | Reboot
-    | Exited
+    | Recover of Guid
     | Quit
-    | Status
+    | Exited of Guid
 
 type State = 
     | Started
     | Stopped
+    | Crashed of Guid
 
 let rec guard arguments (inbox: Agent<_>) = async {
     let delay (ms: int) = Task.Delay(ms)
-    let postpone (task: Task) event = task.ContinueWith(fun _ -> inbox.Post event) |> ignore
-    let await proc = postpone (proc |> wait) Exited
-    let exec () = arguments |> exec |> tap await |> Some
-    let kill proc = proc |> Option.iter kill
-    let rec loop state proc = async {
+    let push event = inbox.Post event
+    let postpone (task: Task) event = task.ContinueWith(fun _ -> push event) |> ignore
+
+    let await guid proc = postpone (proc |> wait) (Exited guid)
+
+    let rec start () = 
+        let guid = Guid.NewGuid()
+        loop Started (arguments |> exec |> tap (await guid) |> Some)
+    and stop proc = 
+        proc |> Option.iter kill
+        loop Stopped None
+    and reboot proc = 
+        let guid = Guid.NewGuid()
+        proc |> Option.iter kill
+        push (Recover guid)
+        loop (Crashed guid) None
+    and recover guid = 
+        postpone (delay 5000) (Recover guid)
+        loop (Crashed guid) None
+    and loop state proc = async {
         let! event = inbox.Receive ()
-        match event, state, proc with
-        | Exec, _, None 
-        | Auto, Started, None
-        | Reboot, Started, _ -> proc |> kill; do! loop Started (exec ())
-        | Kill, _, _ -> proc |> kill; do! loop Stopped None
-        | Exited, Started, _ -> postpone (delay 5000) Auto; do! loop Started None
-        | Quit, _, _ -> proc |> kill
-        | _ -> do! loop state proc
+        match state, event with
+        | _, Kill -> do! stop proc
+        | Started, Reboot -> do! reboot proc
+        | Crashed guid, Reboot -> do! start ()
+        | Started, Quit -> push Quit; do! stop proc
+        | Started, Exited guid -> do! recover guid
+        | Stopped, Quit -> ()
+
+
     }
     do! loop Stopped None
 }
