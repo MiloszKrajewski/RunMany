@@ -44,11 +44,11 @@ module WatchAgent =
             NotifyFilters.Size
 
         // watcher.Changed |> Event.filter (fun e -> isMatch e.Name)
-        watcher.Created 
-        |> Event.filter (fun e -> not (isFolder e) && (isMatch e))
-        |> Event.add (fun _ -> inbox.Post Changed)
-        watcher.Deleted
-        // watcher.Renamed
+//        watcher.Created 
+//        |> Event.filter (fun e -> not (isFolder e) && (isMatch e))
+//        |> Event.add (fun _ -> inbox.Post Changed)
+//        watcher.Deleted
+//        // watcher.Renamed
         watcher.EnableRaisingEvents <- true
 
         let rec loop () = async {
